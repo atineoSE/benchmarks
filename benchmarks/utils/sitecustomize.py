@@ -18,16 +18,11 @@ so no extra wiring is needed.
 
 from __future__ import annotations
 
-from benchmarks.utils import modal_patches, sdk_build_patches
+from benchmarks.utils import modal_patches
 
 
 def _apply_modal_logging_patch() -> None:
     modal_patches.apply_host_patches()
 
 
-def _apply_sdk_build_patch() -> None:
-    sdk_build_patches.apply_host_patches()
-
-
 _apply_modal_logging_patch()
-_apply_sdk_build_patch()
