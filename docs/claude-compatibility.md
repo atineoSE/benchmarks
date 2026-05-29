@@ -1,11 +1,16 @@
 # Open-source LLMs and the Claude Code agent loop: a compatibility evaluation
 
 > **TL;DR.** Claude-Code compatibility is a *training* property, not a
-> serving-stack property. Models trained explicitly on agentic curricula
-> with RL on tool use — GLM-4.6/4.7, Kimi K2.6, DeepSeek V3.2 — are the
-> only ones with concrete evidence of surviving the `acp-claude` loop
-> end-to-end. Models trained only for one-shot tool use (base Qwen3,
-> Llama, Mistral, Gemma) reliably fail the same way base Qwen3.5 did.
+> serving-stack property. The single thing that matters: the model has
+> to keep emitting tool-call markup (which becomes
+> `stop_reason: tool_use`) on every turn where the task isn't done.
+> Models trained explicitly on agentic curricula with RL on tool use —
+> GLM-4.6/4.7, Kimi K2.6, DeepSeek V3.2 — are the only ones with
+> concrete evidence of doing that reliably through `acp-claude`. Models
+> trained only for one-shot tool use (base Qwen3, Llama, Mistral,
+> Gemma) reliably hit EOS mid-task without the markup, ship
+> `stop_reason: end_turn`, and Claude Code correctly believes the
+> conversation is over.
 
 This doc is a companion to
 [claude-and-qwen3.5.md](./claude-and-qwen3.5.md), which documents the
@@ -20,35 +25,51 @@ Code agent loop.
 
 ## What "Claude-Code-compatible" actually tests
 
+Claude Code, like any Anthropic-API client, terminates a turn when
+the response carries `stop_reason: "end_turn"` — the spec's
+authoritative signal that the model is done. There is no
+client-side heuristic to override; the same rule that lets Claude
+itself finish a conversation cleanly is what terminates a session
+early on a misbehaving backend. The only lever the model has to keep
+the loop alive is to emit tool-call markup so the upstream
+`finish_reason` becomes `tool_calls`, which LiteLLM maps to
+`stop_reason: tool_use`. (OpenAI Chat Completions has no analogue of
+Anthropic's `pause_turn`, so the bridge has no third-way escape.)
+
 The chardet failure pinned down five behaviours a backend must get
 right for `acp-claude` to not terminate sessions early:
 
-1. **Mid-task tool-call discipline.** Never finish a generation with
-   text-only unless the task is actually done. Every "let me now look
-   at X" sentence must come *with* the tool call in the same response.
+1. **Mid-task tool-call discipline.** Every "let me now look at X"
+   sentence must be emitted *with* a `<tool_call>` markup token in
+   the same generation, so the upstream `finish_reason` is
+   `tool_calls` (→ Anthropic `stop_reason: tool_use`) rather than
+   `stop` (→ `end_turn`). Hitting EOS after text alone, mid-task, is
+   the single dominant failure mode.
 2. **Reasoning that doesn't swallow tool calls.** If the model uses a
-   `<think>`-style channel, the tool call still has to appear in the
-   visible output channel — not get embedded in the reasoning trace
-   where the parser strips it. (This is the specific Qwen-class
-   regression the OpenHands default agent nudges around at
-   `agent.py:651`.)
-3. **Long-context discipline.** Tool-calling habits must hold at 50k+
-   input tokens, not just on short prompts. The chardet failure fired
-   at 71k input tokens, not at the start of the conversation.
-4. **Recovery from tool errors.** When a tool returns an error (failed
-   path, syntax issue, permission denied), the next response must be
-   another tool call, not a confused near-empty response. This is
-   what specifically ended the chardet session.
+   `<think>`-style channel, the tool-call markup still has to appear
+   in the visible output channel — not get embedded in the reasoning
+   trace where the parser strips it (which leaves no markup → `stop`
+   → `end_turn`). This is the specific Qwen-class regression the
+   OpenHands default agent nudges around at `agent.py:651`.
+3. **Long-context discipline.** The discipline from #1 must hold at
+   50k+ input tokens, not just on short prompts. The chardet failure
+   fired at 71k input tokens, not at the start of the conversation.
+4. **Recovery from tool errors.** When a tool returns an error
+   (failed path, syntax issue, permission denied), the next response
+   must again include tool-call markup, not a confused near-empty
+   text response. This is what specifically ended the chardet session.
 5. **Clean separation in the response shape that LiteLLM's Anthropic
    adapter can map.** `message.content` is the visible text block,
-   `message.tool_calls[]` are `tool_use` blocks, `reasoning_content` is
-   the `thinking` block. No model-specific markup leaking across
+   `message.tool_calls[]` are `tool_use` blocks, `reasoning_content`
+   is the `thinking` block. No model-specific markup leaking across
    channels.
 
-Items 1–4 are *training* properties. Item 5 is a *serving-stack*
-property (vLLM's tool parser + LiteLLM's translator together). The
-existing stack handles item 5 faithfully for any model whose vLLM
-parser exists; the gap is items 1–4.
+Items 1–4 are *training* properties (the model has to learn when to
+emit the markup). Item 5 is a *serving-stack* property (vLLM's tool
+parser + LiteLLM's translator together). The existing stack handles
+item 5 faithfully for any model whose vLLM parser exists; the gap is
+items 1–4, all of which collapse to "the model must signal
+`tool_use`, not `end_turn`, whenever the task is unfinished."
 
 ## How the candidates score against that test
 
