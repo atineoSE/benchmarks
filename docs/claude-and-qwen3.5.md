@@ -288,13 +288,16 @@ calls plus a planning sentence.
   `stop_reason: end_turn` downstream is the *correct* translation.
   There is no `pause_turn`-style escape hatch in OpenAI Chat
   Completions for the bridge to compose with.
-- **For qwen3.5 (and likely other non-Claude backends), use
-  `--agent-type default`.** Its `step()` has explicit handling for
-  reasoning-only / empty-content responses (a synthetic user-side nudge
-  back to action — see `agent.py:651`), which matches qwen3.5's most
-  common failure mode. The default agent also gets a real
-  iteration budget because each OpenHands iteration is one LLM call,
-  not one whole subprocess session.
+- **For qwen3.5, use `--agent-type default`.** Its `step()` has
+  explicit handling for reasoning-only / empty-content responses
+  (a synthetic user-side nudge back to action — see `agent.py:651`),
+  which matches qwen3.5's most common failure mode. The default agent
+  also gets a real iteration budget because each OpenHands iteration
+  is one LLM call, not one whole subprocess session. Other non-Claude
+  backends may benefit from the same recommendation by analogy, but
+  we have direct trace data only for qwen3.5; see
+  [claude-compatibility.md](./claude-compatibility.md) for the
+  per-model evaluation.
 - **Fixing this without changing the model would require a change at
   the Claude Code level** (have the session continue past text-only
   turns, or have the model adapter never emit text without a tool
