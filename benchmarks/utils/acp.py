@@ -33,7 +33,7 @@ _ACP_PROMPT_TIMEOUT_OVERRIDES: dict[str, float] = {
 # Mapping of ACP agent types to the env vars they require.
 # Both the API key and base URL are needed to route through LiteLLM proxy.
 _ACP_ENV_VARS: dict[str, list[str]] = {
-    "acp-claude": ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"],
+    "acp-claude": ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"],
     "acp-codex": ["OPENAI_API_KEY", "OPENAI_BASE_URL"],
     "acp-gemini": ["GEMINI_API_KEY", "GEMINI_BASE_URL"],
 }
